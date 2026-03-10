@@ -21,8 +21,8 @@ env/
 *.jpeg
 
 # Keep the previews folder tracked
-!previews/
-!previews/*.png
+previews/
+previews/*.png
 
 # OS
 .DS_Store
