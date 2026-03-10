@@ -20,6 +20,13 @@ env/
 *.jpg
 *.jpeg
 
+fonts/
+fonts/*
+*.ttf
+*.otf
+*.woff
+*.woff2
+
 # Keep the previews folder tracked
 previews/
 previews/*.png
