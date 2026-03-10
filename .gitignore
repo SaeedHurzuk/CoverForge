@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+
+# Output images (don't commit generated covers)
+*.png
+*.jpg
+*.jpeg
+
+# Keep the previews folder tracked
+!previews/
+!previews/*.png
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Coverage / testing
+.coverage
+htmlcov/
+.pytest_cache/
+previews/*.png
