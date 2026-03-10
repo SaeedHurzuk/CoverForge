@@ -21,7 +21,6 @@ env/
 *.jpeg
 
 fonts/
-fonts/*
 *.ttf
 *.otf
 *.woff
