@@ -20,6 +20,8 @@ env/
 *.jpg
 *.jpeg
 
+fonts/
+fonts/*
 *.ttf
 *.otf
 *.woff
