@@ -4,13 +4,13 @@ Spotify Playlist Cover Generator
 Generates bold, unique, elegant playlist artwork from a playlist name.
 
 Usage:
-  python3 spotify_cover_gen.py "Playlist Name"
-  python3 spotify_cover_gen.py "Playlist Name" --theme neon
-  python3 spotify_cover_gen.py "Playlist Name" --theme all --output ./covers/
-  python3 spotify_cover_gen.py "Playlist Name" --pattern carbon
-  python3 spotify_cover_gen.py "Playlist Name" --font ~/Downloads/Poppins/
-  python3 spotify_cover_gen.py --list-themes
-  python3 spotify_cover_gen.py --list-patterns
+  python3 coverforge.py "Playlist Name"
+  python3 coverforge.py "Playlist Name" --theme neon
+  python3 coverforge.py "Playlist Name" --theme all --output ./covers/
+  python3 coverforge.py "Playlist Name" --pattern carbon
+  python3 coverforge.py "Playlist Name" --font ~/Downloads/Poppins/
+  python3 coverforge.py --list-themes
+  python3 coverforge.py --list-patterns
 """
 
 import sys
@@ -838,7 +838,8 @@ def resolve_text_position(raw):
 
 
 def build_text_layer(size, name, palette, font_bold_path, font_light_path,
-                     position="bottom-left"):
+                     position="bottom-left", font_size_override=None,
+                     show_label=True):
     """
     position is one of TEXT_POSITIONS:
       bottom-left / bottom-center / bottom-right
@@ -866,10 +867,10 @@ def build_text_layer(size, name, palette, font_bold_path, font_light_path,
         h_align = "right"
 
     # -- Find best font size --
-    font_size = int(size * 0.16)
-    font = None
-    lines = []
-    while font_size >= int(size * 0.055):
+    # font_size_override is in points relative to a 3000px canvas;
+    # if the user passed an absolute pixel size we use it directly.
+    if font_size_override is not None:
+        font_size = int(font_size_override)
         font  = ImageFont.truetype(font_bold_path, font_size)
         words = upper.split()
         lines, cur = [], ""
@@ -883,31 +884,59 @@ def build_text_layer(size, name, palette, font_bold_path, font_light_path,
                 cur = word
         if cur:
             lines.append(cur)
-        if len(lines) <= 3:
-            break
-        font_size -= 10
+    else:
+        font_size = int(size * 0.16)
+        font = None
+        lines = []
+        while font_size >= int(size * 0.055):
+            font  = ImageFont.truetype(font_bold_path, font_size)
+            words = upper.split()
+            lines, cur = [], ""
+            for word in words:
+                test = (cur + " " + word).strip()
+                if draw.textbbox((0, 0), test, font=font)[2] <= max_w:
+                    cur = test
+                else:
+                    if cur:
+                        lines.append(cur)
+                    cur = word
+            if cur:
+                lines.append(cur)
+            if len(lines) <= 3:
+                break
+            font_size -= 10
 
     lh  = draw.textbbox((0, 0), "A", font=font)[3]
     gap = int(lh * 0.22)
     total_h = len(lines) * lh + (len(lines) - 1) * gap
 
     # Decoration metrics
-    bar_h       = max(6, int(size * 0.006))
-    bar_gap     = int(size * 0.025)   # space between bar and text block
-    label_size  = max(28, int(size * 0.020))
-    label_gap   = int(size * 0.012)
-    deco_h      = bar_h + bar_gap + label_size + label_gap  # total above text
+    bar_h      = max(6, int(size * 0.006))
+    bar_gap    = int(size * 0.025)   # space between bar and text block
+    label_size = max(28, int(size * 0.020))
+    label_gap  = int(size * 0.012)
+
+    # deco_h = height reserved above/below text for the decoration block
+    # With label: label + gap + bar + gap
+    # Without label: bar + gap only (bar moves to below text)
+    if show_label:
+        deco_h = bar_h + bar_gap + label_size + label_gap
+    else:
+        deco_h = 0  # no space needed above text; bar goes below
 
     # -- Vertical anchor for the text block --
     if v_zone == "bottom":
         block_top = size - margin - int(size * 0.04) - total_h
     elif v_zone == "top":
-        # Decoration sits BELOW text for top positions
         block_top = margin + int(size * 0.04)
     else:  # center
-        # Centre the text block + decoration vertically
-        full_h    = deco_h + total_h
-        block_top = (size - full_h) // 2 + deco_h
+        if show_label:
+            full_h    = deco_h + total_h
+            block_top = (size - full_h) // 2 + deco_h
+        else:
+            # No label deco above, just center the text + bar below
+            full_h    = total_h + bar_gap + bar_h
+            block_top = (size - full_h) // 2
 
     # -- Horizontal x for each line --
     def line_x(line_text):
@@ -927,11 +956,25 @@ def build_text_layer(size, name, palette, font_bold_path, font_light_path,
         draw.text((x + so, y + so), line, font=font, fill=(0, 0, 0, 160))
         draw.text((x, y),           line, font=font, fill=add_alpha(palette["text"], 255))
 
-    # -- Accent bar position --
-    bar_w = int(size * 0.25)
-    if v_zone == "bottom" or v_zone == "center":
-        bar_y = block_top - bar_gap - bar_h
-    else:  # top: bar goes below text
+    # -- Accent bar --
+    if show_label:
+        # Fixed quarter-width bar above text (original behaviour)
+        bar_w = int(size * 0.25)
+    else:
+        # No label: bar spans the full width of the widest text line
+        bar_w = max(
+            draw.textbbox((0, 0), line, font=font)[2]
+            for line in lines
+        )
+
+    if show_label:
+        # Bar sits ABOVE text block (original behaviour)
+        if v_zone in ("bottom", "center"):
+            bar_y = block_top - bar_gap - bar_h
+        else:  # top: bar below text
+            bar_y = block_top + total_h + bar_gap
+    else:
+        # No label: bar always sits BELOW the text block
         bar_y = block_top + total_h + bar_gap
 
     # Horizontal start of bar matches text alignment
@@ -942,35 +985,37 @@ def build_text_layer(size, name, palette, font_bold_path, font_light_path,
     else:
         bar_x = (size - bar_w) // 2
 
-    # Draw gradient bar (left-to-right always, direction doesn't flip)
+    # Draw gradient bar
     for px in range(bar_w):
         col = lerp_color(palette["accent1"], palette["accent2"], px / bar_w)
         draw.line([(bar_x + px, bar_y), (bar_x + px, bar_y + bar_h)],
                   fill=add_alpha(col, 230))
 
-    # -- "PLAYLIST" label --
-    try:
-        label_font = ImageFont.truetype(font_light_path, label_size)
-    except Exception:
-        label_font = font
+    # -- "PLAYLIST" label (only when show_label is True) --
+    if show_label:
+        try:
+            label_font = ImageFont.truetype(font_light_path, label_size)
+        except Exception:
+            label_font = font
 
-    label_text = "PLAYLIST"
-    label_w    = draw.textbbox((0, 0), label_text, font=label_font)[2]
+        label_text = "PLAYLIST"
+        label_w    = draw.textbbox((0, 0), label_text, font=label_font)[2]
 
-    if v_zone in ("bottom", "center"):
-        label_y = bar_y - label_size - label_gap
-    else:  # top: label below bar
-        label_y = bar_y + bar_h + label_gap
+        if v_zone in ("bottom", "center"):
+            label_y = bar_y - label_size - label_gap
+        else:  # top: label below bar
+            label_y = bar_y + bar_h + label_gap
 
-    if h_align == "left":
-        label_x = margin
-    elif h_align == "right":
-        label_x = size - margin - label_w
-    else:
-        label_x = (size - label_w) // 2
+        if h_align == "left":
+            label_x = margin
+        elif h_align == "right":
+            label_x = size - margin - label_w
+        else:
+            label_x = (size - label_w) // 2
 
-    draw.text((label_x, label_y), label_text,
-              font=label_font, fill=add_alpha(palette["accent1"], 180))
+        draw.text((label_x, label_y), label_text,
+                  font=label_font, fill=add_alpha(palette["accent1"], 180))
+
     return img
 
 
@@ -984,7 +1029,8 @@ def safe_slug(text):
 
 def generate_cover(playlist_name, theme_key="auto", pattern_key="auto",
                    font_bold=None, font_light=None, output_path=None,
-                   matte=False, text_pos="bottom-left"):
+                   matte=False, text_pos="bottom-left", compress=0,
+                   font_size=None, show_label=True):
     if not playlist_name.strip():
         raise ValueError("Playlist name cannot be empty.")
 
@@ -998,6 +1044,13 @@ def generate_cover(playlist_name, theme_key="auto", pattern_key="auto",
     print(f"  > Theme    : {palette.get('name', theme_key)}{matte_label}")
     print(f"  > Pattern  : {pat_style}  ({PATTERN_DESCRIPTIONS.get(pat_style, '')})")
     print(f"  > Text pos : {text_pos}")
+    compress_label  = ("none (fastest)" if compress == 0
+                       else "level 10 (TinyPNG-style lossy quantise)" if compress == 10
+                       else f"level {compress}/9 (lossless)")
+    font_size_label = f"{font_size}px" if font_size else "auto"
+    print(f"  > Compress : {compress_label}")
+    print(f"  > Font size: {font_size_label}")
+    print(f"  > Label    : {'on' if show_label else 'off (bar moves below text)'}")
     print(f"  > Font     : {font_bold}")
 
     canvas = build_background(SIZE, palette, rng, matte=matte).convert("RGBA")
@@ -1008,7 +1061,7 @@ def generate_cover(playlist_name, theme_key="auto", pattern_key="auto",
     canvas = Image.alpha_composite(canvas, build_vignette(SIZE, strength=0.45 if matte else 0.68))
     canvas = Image.alpha_composite(canvas, build_text_layer(
         SIZE, playlist_name, palette, font_bold, font_light or font_bold,
-        position=text_pos))
+        position=text_pos, font_size_override=font_size, show_label=show_label))
 
     name_slug    = safe_slug(playlist_name)
     theme_slug   = theme_key if theme_key != "auto" else safe_slug(
@@ -1029,8 +1082,23 @@ def generate_cover(playlist_name, theme_key="auto", pattern_key="auto",
             out.parent.mkdir(parents=True, exist_ok=True)
             output_path = str(out)
 
-    canvas.convert("RGB").save(output_path, "PNG")
-    print(f"  OK Saved -> {output_path}  ({SIZE}x{SIZE}px)")
+    final = canvas.convert("RGB")
+
+    if compress == 10:
+        # Level 10: TinyPNG-style lossy palette quantisation.
+        # Converts to an adaptive 256-colour palette (same approach as pngquant /
+        # TinyPNG), then saves with maximum zlib compression.
+        # Typically reduces file size by 60-80% vs level 9, with minimal visual loss.
+        quantized = final.quantize(colors=256, method=Image.Quantize.MEDIANCUT,
+                                   dither=Image.Dither.FLOYDSTEINBERG)
+        quantized.save(output_path, "PNG", compress_level=9, optimize=True)
+    else:
+        # Levels 0-9: lossless PNG, compress_level maps directly to zlib level
+        final.save(output_path, "PNG",
+                   compress_level=compress, optimize=(compress > 0))
+
+    size_kb = Path(output_path).stat().st_size // 1024
+    print(f"  OK Saved -> {output_path}  ({SIZE}x{SIZE}px, {size_kb:,} KB)")
     return Path(output_path)
 
 
@@ -1073,17 +1141,23 @@ font help:
   Place at: ~/.fonts/truetype/google-fonts/
 
 examples:
-  python3 spotify_cover_gen.py "Late Night Drive"
-  python3 spotify_cover_gen.py "Chill Vibes"       --theme neon
-  python3 spotify_cover_gen.py "Night City"         --theme cyberpunk --pattern carbon
-  python3 spotify_cover_gen.py "Night City"         --theme cyberpunk --pattern carbon  --matte
-  python3 spotify_cover_gen.py "Night City"         --theme gold      --pattern hexgrid --matte
-  python3 spotify_cover_gen.py "Night City"         --theme matte --text-pos center
-  python3 spotify_cover_gen.py "Night City"         --theme neon  --text-pos top-right
-  python3 spotify_cover_gen.py "Night City"         --text-pos br
-  python3 spotify_cover_gen.py "Night City"         --theme all --output ./covers/
-  python3 spotify_cover_gen.py --list-themes
-  python3 spotify_cover_gen.py --list-patterns
+  python3 coverforge.py "Late Night Drive"
+  python3 coverforge.py "Chill Vibes"       --theme neon
+  python3 coverforge.py "Night City"         --theme cyberpunk --pattern carbon
+  python3 coverforge.py "Night City"         --theme cyberpunk --pattern carbon  --matte
+  python3 coverforge.py "Night City"         --theme gold      --pattern hexgrid --matte
+  python3 coverforge.py "Night City"         --theme matte --text-pos center
+  python3 coverforge.py "Night City"         --theme neon  --text-pos top-right
+  python3 coverforge.py "Night City"         --text-pos br
+  python3 coverforge.py "Night City"         --theme all --output ./covers/
+  python3 coverforge.py "Night City"         --compress 6
+  python3 coverforge.py "Night City"         --theme all --compress 6 --output ./covers/
+  python3 coverforge.py "Night City"         --font-size 200
+  python3 coverforge.py "Night City"         --font-size 400 --text-pos center
+  python3 coverforge.py "Night City"         --no-label
+  python3 coverforge.py "Night City"         --no-label --text-pos center
+  python3 coverforge.py --list-themes
+  python3 coverforge.py --list-patterns
         """,
     )
     parser.add_argument("name",            nargs="?",        help="Playlist name")
@@ -1093,6 +1167,13 @@ examples:
                         help="Pattern style or 'auto'. See --list-patterns.")
     parser.add_argument("--font",    "-f", default=None,     metavar="PATH",
                         help="Font file or directory.")
+    parser.add_argument("--font-size", "-s", type=int, default=None, metavar="PX",
+                        help="Title font size in pixels on the 3000x3000 canvas "
+                             "(default: auto-fit). E.g. --font-size 300 for large text, "
+                             "--font-size 150 for small. Auto mode fills ~16%% of canvas width.")
+    parser.add_argument("--no-label", action="store_true",
+                        help="Remove the 'PLAYLIST' label and the accent bar above the text. "
+                             "The accent bar is repositioned below the playlist name instead.")
     parser.add_argument("--output",  "-o", default=None,     metavar="PATH",
                         help="Output file or directory (created if missing).")
     parser.add_argument("--text-pos", "-x", default="bottom-left", metavar="POS",
@@ -1103,6 +1184,15 @@ examples:
     parser.add_argument("--matte",  "-m", action="store_true",
                         help="Matt black background: kills all glows, pattern pops. "
                              "Best with --pattern carbon or --pattern hexgrid.")
+    parser.add_argument("--compress", "-c", type=int, default=0,
+                        metavar="LEVEL",
+                        help="PNG compression level 0-10. 0 = no compression, fastest "
+                             "write, largest file (default). 1-9 = lossless zlib "
+                             "compression, higher = smaller/slower. 10 = lossy palette "
+                             "quantisation (TinyPNG-style), typically 60-80%% smaller "
+                             "than level 9 with minimal visual difference. Resolution "
+                             "stays 3000x3000 at all levels. Recommended: 6 for balance, "
+                             "10 for smallest lossless-looking result.")
     parser.add_argument("--list-themes",   action="store_true",
                         help="Print all theme keys and exit.")
     parser.add_argument("--list-patterns", action="store_true",
@@ -1167,6 +1257,9 @@ examples:
             output_path=output_arg,
             matte=args.matte,
             text_pos=resolved_pos,
+            compress=args.compress,
+            font_size=args.font_size,
+            show_label=not args.no_label,
         )
 
     print()
